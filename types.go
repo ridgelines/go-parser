@@ -10,17 +10,20 @@ type GoFile struct {
 }
 
 type GoStruct struct {
+	File   *GoFile
 	Name   string
 	Fields []*GoField
 }
 
 type GoField struct {
-	Name string
-	Type string
-	Tag  *GoTag
+	Struct *GoStruct
+	Name   string
+	Type   string
+	Tag    *GoTag
 }
 
 type GoTag struct {
+	Field *GoField
 	Value string
 }
 

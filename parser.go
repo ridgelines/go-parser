@@ -46,7 +46,7 @@ func ParseFile(path string) (*GoFile, error) {
 					// StructType: A StructType node represents a struct type: https://golang.org/pkg/go/ast/#StructType
 					case (*ast.StructType):
 						structType := typeSpecType
-						goFile.Structs = append(goFile.Structs, buildGoStruct(source, typeSpec, structType))
+						goFile.Structs = append(goFile.Structs, buildGoStruct(source, goFile, typeSpec, structType))
 					default:
 						// a not-implemented typeSpec.Type.(type), ignore
 					}
@@ -62,8 +62,9 @@ func ParseFile(path string) (*GoFile, error) {
 	return goFile, nil
 }
 
-func buildGoStruct(source []byte, typeSpec *ast.TypeSpec, structType *ast.StructType) *GoStruct {
+func buildGoStruct(source []byte, file *GoFile, typeSpec *ast.TypeSpec, structType *ast.StructType) *GoStruct {
 	goStruct := &GoStruct{
+		File:   file,
 		Name:   typeSpec.Name.Name,
 		Fields: []*GoField{},
 	}
@@ -73,12 +74,18 @@ func buildGoStruct(source []byte, typeSpec *ast.TypeSpec, structType *ast.Struct
 	for _, field := range structType.Fields.List {
 		for _, name := range field.Names {
 			goField := &GoField{
-				Name: name.String(),
-				Type: string(source[field.Type.Pos()-1 : field.Type.End()-1]),
+				Struct: goStruct,
+				Name:   name.String(),
+				Type:   string(source[field.Type.Pos()-1 : field.Type.End()-1]),
 			}
 
 			if field.Tag != nil {
-				goField.Tag = &GoTag{Value: field.Tag.Value}
+				goTag := &GoTag{
+					Field: goField,
+					Value: field.Tag.Value,
+				}
+
+				goField.Tag = goTag
 			}
 
 			goStruct.Fields = append(goStruct.Fields, goField)
