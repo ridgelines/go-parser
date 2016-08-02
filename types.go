@@ -76,7 +76,8 @@ type GoTag struct {
 }
 
 func (g *GoTag) Get(key string) string {
-	return reflect.StructTag(g.Value).Get(key)
+	tag := strings.Replace(g.Value, "`", "", -1)
+	return reflect.StructTag(tag).Get(key)
 }
 
 // For an import - guess what prefix will be used
