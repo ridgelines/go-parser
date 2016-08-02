@@ -1,15 +1,36 @@
 package parser
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 )
 
 type GoFile struct {
 	Package    string
+	Path       string
 	Structs    []*GoStruct
 	Interfaces []*GoInterface
 	Imports    []*GoImport
+}
+
+func (g *GoFile) ImportPath() (string, error) {
+	importPath, err := filepath.Abs(g.Path)
+	if err != nil {
+		return "", err
+	}
+
+	importPath = strings.Replace(importPath, "\\", "/", -1)
+
+	goPath := strings.Replace(os.Getenv("GOPATH"), "\\", "/", -1)
+	importPath = strings.TrimPrefix(importPath, goPath)
+	importPath = strings.TrimPrefix(importPath, "/src/")
+
+	importPath = strings.TrimSuffix(importPath, filepath.Base(importPath))
+	importPath = strings.TrimSuffix(importPath, "/")
+
+	return importPath, nil
 }
 
 type GoImport struct {
@@ -54,8 +75,8 @@ type GoTag struct {
 	Value string
 }
 
-func (this *GoTag) Get(key string) string {
-	return reflect.StructTag(this.Value).Get(key)
+func (g *GoTag) Get(key string) string {
+	return reflect.StructTag(g.Value).Get(key)
 }
 
 // For an import - guess what prefix will be used
@@ -63,15 +84,17 @@ func (this *GoTag) Get(key string) string {
 //    "strings" -> "strings"
 //    "net/http/httptest" -> "httptest"
 // Libraries where the package name does not match
-// this path will be mis-identified.
-func (this *GoImport) Prefix() string {
-	if this.Name != "" {
-		return this.Name
+// will be mis-identified.
+func (g *GoImport) Prefix() string {
+	if g.Name != "" {
+		return g.Name
 	}
-	path := strings.Trim(this.Path, "\"")
+
+	path := strings.Trim(g.Path, "\"")
 	lastSlash := strings.LastIndex(path, "/")
 	if lastSlash == -1 {
 		return path
 	}
+
 	return path[lastSlash+1:]
 }

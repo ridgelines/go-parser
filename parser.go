@@ -21,6 +21,7 @@ func ParseFile(path string) (*GoFile, error) {
 	}
 
 	goFile := &GoFile{
+		Path:    path,
 		Package: file.Name.Name,
 		Structs: []*GoStruct{},
 	}
@@ -47,11 +48,13 @@ func ParseFile(path string) (*GoFile, error) {
 					// StructType: A StructType node represents a struct type: https://golang.org/pkg/go/ast/#StructType
 					case (*ast.StructType):
 						structType := typeSpecType
-						goFile.Structs = append(goFile.Structs, buildGoStruct(source, goFile, typeSpec, structType))
+						goStruct := buildGoStruct(source, goFile, typeSpec, structType)
+						goFile.Structs = append(goFile.Structs, goStruct)
 					// InterfaceType: An InterfaceType node represents an interface type. https://golang.org/pkg/go/ast/#InterfaceType
 					case (*ast.InterfaceType):
 						interfaceType := typeSpecType
-						goFile.Interfaces = append(goFile.Interfaces, buildGoInterface(source, goFile, typeSpec, interfaceType))
+						goInterface := buildGoInterface(source, goFile, typeSpec, interfaceType)
+						goFile.Interfaces = append(goFile.Interfaces, goInterface)
 					default:
 						// a not-implemented typeSpec.Type.(type), ignore
 					}
@@ -77,6 +80,7 @@ func buildGoImport(spec *ast.ImportSpec, file *GoFile) *GoImport {
 	if spec.Name != nil {
 		name = spec.Name.Name
 	}
+
 	path := ""
 	if spec.Path != nil {
 		path = spec.Path.Value
@@ -95,6 +99,7 @@ func buildGoInterface(source []byte, file *GoFile, typeSpec *ast.TypeSpec, inter
 		Name:    typeSpec.Name.Name,
 		Methods: buildMethodList(interfaceType.Methods.List, source),
 	}
+
 	return goInterface
 }
 
@@ -115,8 +120,10 @@ func buildMethodList(fieldList []*ast.Field, source []byte) []*GoMethod {
 			Params:  buildTypeList(fType.Params, source),
 			Results: buildTypeList(fType.Results, source),
 		}
+
 		methods = append(methods, goMethod)
 	}
+
 	return methods
 }
 
@@ -126,6 +133,7 @@ func buildTypeList(fieldList *ast.FieldList, source []byte) []*GoType {
 	if fieldList != nil {
 		for _, t := range fieldList.List {
 			goType := buildType(t.Type, source)
+
 			for _, n := range getNames(t) {
 				copyType := copyType(goType)
 				copyType.Name = n
@@ -133,6 +141,7 @@ func buildTypeList(fieldList *ast.FieldList, source []byte) []*GoType {
 			}
 		}
 	}
+
 	return types
 }
 
@@ -140,10 +149,12 @@ func getNames(field *ast.Field) []string {
 	if field.Names == nil || len(field.Names) == 0 {
 		return []string{""}
 	}
+
 	result := []string{}
 	for _, name := range field.Names {
 		result = append(result, name.String())
 	}
+
 	return result
 }
 
