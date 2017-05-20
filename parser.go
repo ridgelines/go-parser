@@ -3,8 +3,10 @@ package parser
 import (
 	"fmt"
 	"go/ast"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io/ioutil"
 )
 
@@ -15,7 +17,20 @@ func ParseFile(path string) (*GoFile, error) {
 	}
 
 	// File: A File node represents a Go source file: https://golang.org/pkg/go/ast/#File
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	conf := types.Config{Importer: importer.Default()}
+	info := &types.Info{
+		Types: make(map[ast.Expr]types.TypeAndValue),
+		Defs:  make(map[*ast.Ident]types.Object),
+		Uses:  make(map[*ast.Ident]types.Object),
+	}
+
+	_, err = conf.Check(file.Name.Name, fset, []*ast.File{file}, info)
 	if err != nil {
 		return nil, err
 	}
@@ -48,12 +63,12 @@ func ParseFile(path string) (*GoFile, error) {
 					// StructType: A StructType node represents a struct type: https://golang.org/pkg/go/ast/#StructType
 					case (*ast.StructType):
 						structType := typeSpecType
-						goStruct := buildGoStruct(source, goFile, typeSpec, structType)
+						goStruct := buildGoStruct(source, goFile, info, typeSpec, structType)
 						goFile.Structs = append(goFile.Structs, goStruct)
 					// InterfaceType: An InterfaceType node represents an interface type. https://golang.org/pkg/go/ast/#InterfaceType
 					case (*ast.InterfaceType):
 						interfaceType := typeSpecType
-						goInterface := buildGoInterface(source, goFile, typeSpec, interfaceType)
+						goInterface := buildGoInterface(source, goFile, info, typeSpec, interfaceType)
 						goFile.Interfaces = append(goFile.Interfaces, goInterface)
 					default:
 						// a not-implemented typeSpec.Type.(type), ignore
@@ -93,17 +108,17 @@ func buildGoImport(spec *ast.ImportSpec, file *GoFile) *GoImport {
 	}
 }
 
-func buildGoInterface(source []byte, file *GoFile, typeSpec *ast.TypeSpec, interfaceType *ast.InterfaceType) *GoInterface {
+func buildGoInterface(source []byte, file *GoFile, info *types.Info, typeSpec *ast.TypeSpec, interfaceType *ast.InterfaceType) *GoInterface {
 	goInterface := &GoInterface{
 		File:    file,
 		Name:    typeSpec.Name.Name,
-		Methods: buildMethodList(interfaceType.Methods.List, source),
+		Methods: buildMethodList(info, interfaceType.Methods.List, source),
 	}
 
 	return goInterface
 }
 
-func buildMethodList(fieldList []*ast.Field, source []byte) []*GoMethod {
+func buildMethodList(info *types.Info, fieldList []*ast.Field, source []byte) []*GoMethod {
 	methods := []*GoMethod{}
 
 	for _, field := range fieldList {
@@ -117,8 +132,8 @@ func buildMethodList(fieldList []*ast.Field, source []byte) []*GoMethod {
 
 		goMethod := &GoMethod{
 			Name:    name,
-			Params:  buildTypeList(fType.Params, source),
-			Results: buildTypeList(fType.Results, source),
+			Params:  buildTypeList(info, fType.Params, source),
+			Results: buildTypeList(info, fType.Results, source),
 		}
 
 		methods = append(methods, goMethod)
@@ -127,12 +142,12 @@ func buildMethodList(fieldList []*ast.Field, source []byte) []*GoMethod {
 	return methods
 }
 
-func buildTypeList(fieldList *ast.FieldList, source []byte) []*GoType {
+func buildTypeList(info *types.Info, fieldList *ast.FieldList, source []byte) []*GoType {
 	types := []*GoType{}
 
 	if fieldList != nil {
 		for _, t := range fieldList.List {
-			goType := buildType(t.Type, source)
+			goType := buildType(info, t.Type, source)
 
 			for _, n := range getNames(t) {
 				copyType := copyType(goType)
@@ -162,35 +177,47 @@ func getTypeString(expr ast.Expr, source []byte) string {
 	return string(source[expr.Pos()-1 : expr.End()-1])
 }
 
+func getUnderlyingTypeString(info *types.Info, expr ast.Expr) string {
+	if typeInfo := info.TypeOf(expr); typeInfo != nil {
+		if underlying := typeInfo.Underlying(); underlying != nil {
+			return underlying.String()
+		}
+	}
+
+	return ""
+}
+
 func copyType(goType *GoType) *GoType {
 	return &GoType{
-		Type:  goType.Type,
-		Inner: goType.Inner,
-		Name:  goType.Name,
+		Type:       goType.Type,
+		Inner:      goType.Inner,
+		Name:       goType.Name,
+		Underlying: goType.Underlying,
 	}
 }
 
-func buildType(expr ast.Expr, source []byte) *GoType {
+func buildType(info *types.Info, expr ast.Expr, source []byte) *GoType {
 	innerTypes := []*GoType{}
 	typeString := getTypeString(expr, source)
+	underlyingString := getUnderlyingTypeString(info, expr)
 
 	switch specType := expr.(type) {
 	case *ast.FuncType:
-		innerTypes = append(innerTypes, buildTypeList(specType.Params, source)...)
-		innerTypes = append(innerTypes, buildTypeList(specType.Results, source)...)
+		innerTypes = append(innerTypes, buildTypeList(info, specType.Params, source)...)
+		innerTypes = append(innerTypes, buildTypeList(info, specType.Results, source)...)
 	case *ast.ArrayType:
-		innerTypes = append(innerTypes, buildType(specType.Elt, source))
+		innerTypes = append(innerTypes, buildType(info, specType.Elt, source))
 	case *ast.MapType:
-		innerTypes = append(innerTypes, buildType(specType.Key, source))
-		innerTypes = append(innerTypes, buildType(specType.Value, source))
+		innerTypes = append(innerTypes, buildType(info, specType.Key, source))
+		innerTypes = append(innerTypes, buildType(info, specType.Value, source))
 	case *ast.ChanType:
-		innerTypes = append(innerTypes, buildType(specType.Value, source))
+		innerTypes = append(innerTypes, buildType(info, specType.Value, source))
 	case *ast.StarExpr:
-		innerTypes = append(innerTypes, buildType(specType.X, source))
+		innerTypes = append(innerTypes, buildType(info, specType.X, source))
 	case *ast.Ellipsis:
-		innerTypes = append(innerTypes, buildType(specType.Elt, source))
+		innerTypes = append(innerTypes, buildType(info, specType.Elt, source))
 	case *ast.InterfaceType:
-		methods := buildMethodList(specType.Methods.List, source)
+		methods := buildMethodList(info, specType.Methods.List, source)
 		for _, m := range methods {
 			innerTypes = append(innerTypes, m.Params...)
 			innerTypes = append(innerTypes, m.Results...)
@@ -203,12 +230,13 @@ func buildType(expr ast.Expr, source []byte) *GoType {
 	}
 
 	return &GoType{
-		Type:  typeString,
-		Inner: innerTypes,
+		Type:       typeString,
+		Underlying: underlyingString,
+		Inner:      innerTypes,
 	}
 }
 
-func buildGoStruct(source []byte, file *GoFile, typeSpec *ast.TypeSpec, structType *ast.StructType) *GoStruct {
+func buildGoStruct(source []byte, file *GoFile, info *types.Info, typeSpec *ast.TypeSpec, structType *ast.StructType) *GoStruct {
 	goStruct := &GoStruct{
 		File:   file,
 		Name:   typeSpec.Name.Name,

@@ -52,9 +52,10 @@ type GoMethod struct {
 }
 
 type GoType struct {
-	Name  string
-	Type  string
-	Inner []*GoType
+	Name       string
+	Type       string
+	Underlying string
+	Inner      []*GoType
 }
 
 type GoStruct struct {
