@@ -82,6 +82,11 @@ func ParseFile(path string) (*GoFile, error) {
 					// a not-implemented genSpec.(type), ignore
 				}
 			}
+		case *ast.FuncDecl:
+			funcDecl := declType
+			goStructMethod := buildStructMethod(info, funcDecl, source)
+			goFile.StructMethods = append(goFile.StructMethods, goStructMethod)
+
 		default:
 			// a not-implemented decl.(type), ignore
 		}
@@ -140,6 +145,29 @@ func buildMethodList(info *types.Info, fieldList []*ast.Field, source []byte) []
 	}
 
 	return methods
+}
+
+func buildStructMethod(info *types.Info, funcDecl *ast.FuncDecl, source []byte) *GoStructMethod {
+	return &GoStructMethod{
+		Receivers: buildReceiverList(info, funcDecl.Recv, source),
+		GoMethod: GoMethod{
+			Name:    funcDecl.Name.Name,
+			Params:  buildTypeList(info, funcDecl.Type.Params, source),
+			Results: buildTypeList(info, funcDecl.Type.Results, source),
+		},
+	}
+}
+
+func buildReceiverList(info *types.Info, fieldList *ast.FieldList, source []byte) []string {
+	receivers := []string{}
+
+	if fieldList != nil {
+		for _, t := range fieldList.List {
+			receivers = append(receivers, getTypeString(t.Type, source))
+		}
+	}
+
+	return receivers
 }
 
 func buildTypeList(info *types.Info, fieldList *ast.FieldList, source []byte) []*GoType {

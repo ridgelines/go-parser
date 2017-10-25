@@ -8,11 +8,12 @@ import (
 )
 
 type GoFile struct {
-	Package    string
-	Path       string
-	Structs    []*GoStruct
-	Interfaces []*GoInterface
-	Imports    []*GoImport
+	Package       string
+	Path          string
+	Structs       []*GoStruct
+	Interfaces    []*GoInterface
+	Imports       []*GoImport
+	StructMethods []*GoStructMethod
 }
 
 func (g *GoFile) ImportPath() (string, error) {
@@ -49,6 +50,11 @@ type GoMethod struct {
 	Name    string
 	Params  []*GoType
 	Results []*GoType
+}
+
+type GoStructMethod struct {
+	GoMethod
+	Receivers []string
 }
 
 type GoType struct {
