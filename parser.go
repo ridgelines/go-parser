@@ -11,13 +11,16 @@ import (
 )
 
 // ParseFiles parses files at the same time
-func ParseFiles(paths []string) ([]*GoFile, error) {
+func ParseFiles(paths []string, withComments bool) ([]*GoFile, error) {
 	files := make([]*ast.File, len(paths))
 	fsets := make([]*token.FileSet, len(paths))
 	for i, p := range paths {
 		// File: A File node represents a Go source file: https://golang.org/pkg/go/ast/#File
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, p, nil, 0)
+
+		var mode parser.Mode
+		if withComments { mode = parser.ParseComments } else { mode = 0 }
+		file, err := parser.ParseFile(fset, p, nil, mode)
 		if err != nil {
 			return nil, err
 		}
@@ -27,7 +30,7 @@ func ParseFiles(paths []string) ([]*GoFile, error) {
 
 	goFiles := make([]*GoFile, len(paths))
 	for i, p := range paths {
-		goFile, err := parseFile(p, files[i], fsets[i], files)
+		goFile, err := parseFile(p, nil, files[i], fsets[i], files)
 		if err != nil {
 			return nil, err
 		}
@@ -37,19 +40,39 @@ func ParseFiles(paths []string) ([]*GoFile, error) {
 }
 
 // ParseSingleFile parses a single file at the same time
-func ParseSingleFile(path string) (*GoFile, error) {
+func ParseSingleFile(path string, withComments bool) (*GoFile, error) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, nil, 0)
+
+	var mode parser.Mode
+	if withComments { mode = parser.ParseComments } else { mode = 0 }
+	file, err := parser.ParseFile(fset, path, nil, mode)
 	if err != nil {
 		return nil, err
 	}
-	return parseFile(path, file, fset, []*ast.File{file})
+	return parseFile(path, nil, file, fset, []*ast.File{file})
 }
 
-func parseFile(path string, file *ast.File, fset *token.FileSet, files []*ast.File) (*GoFile, error) {
-	source, err := ioutil.ReadFile(path)
+func ParseSource(source string, withComments bool) (*GoFile, error) {
+	fset := token.NewFileSet()
+	path := "source"
+	var mode parser.Mode
+	if withComments { mode = parser.ParseComments } else { mode = 0 }
+	file, err := parser.ParseFile(fset, path, source, mode)
+
 	if err != nil {
 		return nil, err
+	}
+	return parseFile(path, []byte(source), file, fset, []*ast.File{file})
+}
+
+func parseFile(path string, source []byte, file *ast.File, fset *token.FileSet, files []*ast.File) (*GoFile, error) {
+
+	var err error
+	if source == nil{
+		source, err = ioutil.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// To import sources from vendor, we use "source" compile
@@ -82,6 +105,20 @@ func parseFile(path string, file *ast.File, fset *token.FileSet, files []*ast.Fi
 			// Specs: the Spec type stands for any of *ImportSpec, *ValueSpec, and *TypeSpec: https://golang.org/pkg/go/ast/#Spec
 			for _, genSpec := range genDecl.Specs {
 				switch genSpecType := genSpec.(type) {
+
+				// A ValueSpec node represents a constant or variable declaration: https://pkg.go.dev/go/ast#ValueSpec
+				case *ast.ValueSpec:
+					valueSpec := genSpecType
+
+					switch genDecl.Tok {
+					case token.CONST:
+						goConst := buildGoConstant(source, goFile, info, valueSpec)
+						goFile.GlobalConstants = append(goFile.GlobalConstants, goConst)
+
+					case token.VAR:
+						goVar := buildGoVariable(source, goFile, info, valueSpec)
+						goFile.GlobalVariables = append(goFile.GlobalVariables, goVar)
+					}
 
 				// TypeSpec: A TypeSpec node represents a type declaration: https://golang.org/pkg/go/ast/#TypeSpec
 				case *ast.TypeSpec:
@@ -123,6 +160,33 @@ func parseFile(path string, file *ast.File, fset *token.FileSet, files []*ast.Fi
 	}
 
 	return goFile, nil
+}
+
+func buildGoVariable(source []byte, _ *GoFile, info *types.Info, spec *ast.ValueSpec) *GoType {
+	var t *GoType
+	if spec.Type == nil{ // untyped const
+		t = buildType(info, spec.Values[0], source)
+	} else {
+		t = buildType(info, spec.Type, source)
+	}
+
+	t.Name = spec.Names[0].Name
+
+	return t
+}
+
+func buildGoConstant(source []byte, _ *GoFile, info *types.Info, spec *ast.ValueSpec) *GoType {
+
+	var t *GoType
+	if spec.Type == nil{ // untyped const
+		t = buildType(info, spec.Values[0], source)
+	} else {
+		t = buildType(info, spec.Type, source)
+	}
+
+	t.Name = spec.Names[0].Name
+
+	return t
 }
 
 func buildGoImport(spec *ast.ImportSpec, file *GoFile) *GoImport {
@@ -193,7 +257,7 @@ func buildReceiverList(info *types.Info, fieldList *ast.FieldList, source []byte
 
 	if fieldList != nil {
 		for _, t := range fieldList.List {
-			receivers = append(receivers, getTypeString(t.Type, source))
+			receivers = append(receivers, getTypeString(info, t.Type, source))
 		}
 	}
 
@@ -231,8 +295,28 @@ func getNames(field *ast.Field) []string {
 	return result
 }
 
-func getTypeString(expr ast.Expr, source []byte) string {
-	return string(source[expr.Pos()-1 : expr.End()-1])
+func getTypeString(info *types.Info, expr ast.Expr, source []byte) string {
+
+	if expr == nil{
+		return ""
+	}
+
+	switch expr.(type){
+	case *ast.BasicLit:
+		if typeInfo := info.TypeOf(expr); typeInfo != nil {
+			return typeInfo.String()
+		}
+
+	case *ast.BinaryExpr:
+		if typeInfo := info.TypeOf(expr); typeInfo != nil {
+			return typeInfo.String()
+		}
+
+	default:
+		return string(source[expr.Pos()-1 : expr.End()-1])
+	}
+
+	return ""
 }
 
 func getUnderlyingTypeString(info *types.Info, expr ast.Expr) string {
@@ -256,7 +340,7 @@ func copyType(goType *GoType) *GoType {
 
 func buildType(info *types.Info, expr ast.Expr, source []byte) *GoType {
 	innerTypes := []*GoType{}
-	typeString := getTypeString(expr, source)
+	typeString := getTypeString(info, expr, source)
 	underlyingString := getUnderlyingTypeString(info, expr)
 
 	switch specType := expr.(type) {
@@ -285,6 +369,8 @@ func buildType(info *types.Info, expr ast.Expr, source []byte) *GoType {
 
 	case *ast.Ident:
 	case *ast.SelectorExpr:
+	case *ast.BasicLit:
+	case *ast.BinaryExpr:
 	default:
 		fmt.Printf("Unexpected field type: `%s`,\n %#v\n", typeString, specType)
 	}

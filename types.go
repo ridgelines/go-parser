@@ -9,8 +9,10 @@ import (
 
 type GoFile struct {
 	Package       string
-	Path          string
-	Structs       []*GoStruct
+	Path            string
+	GlobalConstants []*GoType
+	GlobalVariables []*GoType
+	Structs         []*GoStruct
 	Interfaces    []*GoInterface
 	Imports       []*GoImport
 	StructMethods []*GoStructMethod
