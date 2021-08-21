@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"go/types"
 	"io/ioutil"
+	"strings"
 )
 
 // ParseFiles parses files at the same time
@@ -130,12 +131,12 @@ func parseFile(path string, source []byte, file *ast.File, fset *token.FileSet, 
 					// StructType: A StructType node represents a struct type: https://golang.org/pkg/go/ast/#StructType
 					case (*ast.StructType):
 						structType := typeSpecType
-						goStruct := buildGoStruct(source, goFile, info, typeSpec, structType)
+						goStruct := buildGoStruct(source, goFile, info, typeSpec, structType, genDecl.Doc)
 						goFile.Structs = append(goFile.Structs, goStruct)
 					// InterfaceType: An InterfaceType node represents an interface type. https://golang.org/pkg/go/ast/#InterfaceType
 					case (*ast.InterfaceType):
 						interfaceType := typeSpecType
-						goInterface := buildGoInterface(source, goFile, info, typeSpec, interfaceType)
+						goInterface := buildGoInterface(source, goFile, info, typeSpec, interfaceType, genDecl.Doc)
 						goFile.Interfaces = append(goFile.Interfaces, goInterface)
 					default:
 						// a not-implemented typeSpec.Type.(type), ignore
@@ -151,7 +152,7 @@ func parseFile(path string, source []byte, file *ast.File, fset *token.FileSet, 
 			}
 		case *ast.FuncDecl:
 			funcDecl := declType
-			goStructMethod := buildStructMethod(info, funcDecl, source)
+			goStructMethod := buildStructMethod(info, funcDecl, source, declType.Doc)
 			goFile.StructMethods = append(goFile.StructMethods, goStructMethod)
 
 		default:
@@ -207,11 +208,12 @@ func buildGoImport(spec *ast.ImportSpec, file *GoFile) *GoImport {
 	}
 }
 
-func buildGoInterface(source []byte, file *GoFile, info *types.Info, typeSpec *ast.TypeSpec, interfaceType *ast.InterfaceType) *GoInterface {
+func buildGoInterface(source []byte, file *GoFile, info *types.Info, typeSpec *ast.TypeSpec, interfaceType *ast.InterfaceType, cg *ast.CommentGroup) *GoInterface {
 	goInterface := &GoInterface{
 		File:    file,
 		Name:    typeSpec.Name.Name,
 		Methods: buildMethodList(info, interfaceType.Methods.List, source),
+		Comments: extractComment(cg),
 	}
 
 	return goInterface
@@ -241,13 +243,14 @@ func buildMethodList(info *types.Info, fieldList []*ast.Field, source []byte) []
 	return methods
 }
 
-func buildStructMethod(info *types.Info, funcDecl *ast.FuncDecl, source []byte) *GoStructMethod {
+func buildStructMethod(info *types.Info, funcDecl *ast.FuncDecl, source []byte, cg *ast.CommentGroup) *GoStructMethod {
 	return &GoStructMethod{
 		Receivers: buildReceiverList(info, funcDecl.Recv, source),
 		GoMethod: GoMethod{
 			Name:    funcDecl.Name.Name,
 			Params:  buildTypeList(info, funcDecl.Type.Params, source),
 			Results: buildTypeList(info, funcDecl.Type.Results, source),
+			Comments: extractComment(cg),
 		},
 	}
 }
@@ -382,11 +385,12 @@ func buildType(info *types.Info, expr ast.Expr, source []byte) *GoType {
 	}
 }
 
-func buildGoStruct(source []byte, file *GoFile, info *types.Info, typeSpec *ast.TypeSpec, structType *ast.StructType) *GoStruct {
+func buildGoStruct(source []byte, file *GoFile, info *types.Info, typeSpec *ast.TypeSpec, structType *ast.StructType, cg *ast.CommentGroup) *GoStruct {
 	goStruct := &GoStruct{
 		File:   file,
 		Name:   typeSpec.Name.Name,
 		Fields: []*GoField{},
+		Comments: extractComment(cg),
 	}
 
 	// Field: A Field declaration list in a struct type, a method list in an interface type,
@@ -413,4 +417,21 @@ func buildGoStruct(source []byte, file *GoFile, info *types.Info, typeSpec *ast.
 	}
 
 	return goStruct
+}
+
+func extractComment(cg *ast.CommentGroup) string {
+	if cg == nil || cg.List == nil{
+		return ""
+	}
+
+	var comment string
+	for _, c := range cg.List{
+		comment += c.Text
+		comment = strings.ReplaceAll(comment, "//", "")
+		comment = strings.ReplaceAll(comment, "/*", "")
+		comment = strings.ReplaceAll(comment, "*/", "")
+		comment = strings.TrimSpace(comment)
+	}
+
+	return comment
 }

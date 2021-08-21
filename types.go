@@ -45,12 +45,14 @@ type GoImport struct {
 type GoInterface struct {
 	File    *GoFile
 	Name    string
+	Comments string
 	Methods []*GoMethod
 }
 
 type GoMethod struct {
 	Name    string
 	Params  []*GoType
+	Comments string
 	Results []*GoType
 }
 
@@ -69,6 +71,7 @@ type GoType struct {
 type GoStruct struct {
 	File   *GoFile
 	Name   string
+	Comments string
 	Fields []*GoField
 }
 

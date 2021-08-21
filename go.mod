@@ -1,3 +1,3 @@
-module github.com/zpatrick/go-parser
+module github.com/GreenFuze/go-parser
 
 go 1.16
