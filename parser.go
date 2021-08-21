@@ -53,9 +53,9 @@ func ParseSingleFile(path string, withComments bool) (*GoFile, error) {
 	return parseFile(path, nil, file, fset, []*ast.File{file})
 }
 
-func ParseSource(source string, withComments bool) (*GoFile, error) {
+func ParseSource(source string, filepath string, withComments bool) (*GoFile, error) {
 	fset := token.NewFileSet()
-	path := "source"
+	path := filepath
 	var mode parser.Mode
 	if withComments { mode = parser.ParseComments } else { mode = 0 }
 	file, err := parser.ParseFile(fset, path, source, mode)
