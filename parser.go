@@ -1,13 +1,15 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
-	"go/importer"
 	"go/parser"
 	"go/token"
 	"go/types"
 	"io/ioutil"
+	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -66,6 +68,60 @@ func ParseSource(source string, filepath string, withComments bool) (*GoFile, er
 	return parseFile(path, []byte(source), file, fset, []*ast.File{file})
 }
 
+func execCommand(name string, args ...string) (out string, exitCode int, err error){
+	stream := &strings.Builder{}
+	
+	cmd := exec.Command(name, args...)
+	cmd.Stderr = stream
+	cmd.Stdout = stream
+	
+	err = cmd.Run()
+	if err != nil{
+		var terr *exec.ExitError
+		if errors.As(err, &terr){
+			exitCode = terr.ExitCode()
+			out = stream.String()
+		}
+	}
+	
+	
+	fmt.Printf("Execution: %v\n", stream.String())
+	
+	return
+}
+
+func getLibrary(importUrl string) (err error, cleanup func()){
+	
+	fmt.Printf("Importing %v\n", importUrl)
+	
+	cleanup = func() {}
+	
+	var out string
+	var exitCode int
+	
+	_, staterr := os.Stat("go.mod")
+	if os.IsNotExist(staterr){
+		out, exitCode, err = execCommand("go", "mod", "init", "tempmod")
+		if err != nil{
+			err = fmt.Errorf("failed to execute go mod init command to import Go library: %v.\nError: %v. Exit Code: %v\nOutput: %v\n", importUrl, err, exitCode, out)
+			return
+		}
+		
+		cleanup = func() {
+			_ = os.Remove("go.mod")
+			_ = os.Remove("go.sum")
+		}
+	}
+	
+	out, exitCode, err = execCommand("go", "get", "-v", importUrl)
+	if err != nil{
+		err = fmt.Errorf("failed to execute go get command to import Go library: %v.\nError: %v. Exit Code: %v\nOutput: %v\n", importUrl, err, exitCode, out)
+		return
+	}
+	
+	return
+}
+
 func parseFile(path string, source []byte, file *ast.File, fset *token.FileSet, files []*ast.File) (*GoFile, error) {
 
 	var err error
@@ -75,19 +131,46 @@ func parseFile(path string, source []byte, file *ast.File, fset *token.FileSet, 
 			return nil, err
 		}
 	}
-
+	
+	
 	// To import sources from vendor, we use "source" compile
 	// https://github.com/golang/go/issues/11415#issuecomment-283445198
-	conf := types.Config{Importer: importer.For("source", nil)}
+	conf := types.Config{Importer: &PackImporter{fset}/*importer.ForCompiler(fset, "source", nil)*/}
 	info := &types.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
 		Defs:  make(map[*ast.Ident]types.Object),
 		Uses:  make(map[*ast.Ident]types.Object),
 	}
 
-	if _, err = conf.Check(file.Name.Name, fset, files, info); err != nil {
-		return nil, err
+	tries := 2
+	for tries > 0{
+		tries--
+		if _, err = conf.Check(file.Name.Name, fset, files, info); err != nil {
+			
+			// Get package to import
+			startingPointString := "could not import "
+			
+			start := strings.Index(err.Error(), startingPointString)
+			if start > -1 && tries > 0{
+				start += len(startingPointString)
+				end := strings.Index(err.Error()[start:], " ")
+				
+				if end > -1{
+					toimport := err.Error()[start:start+end]
+					err, cleanup := getLibrary(toimport)
+					defer cleanup()
+					if err != nil{
+						return nil, err
+					}
+					
+					continue
+				}
+			}
+		
+			return nil, fmt.Errorf("errors type checking source file. error: %v", err)
+		}
 	}
+	
 
 	goFile := &GoFile{
 		Path:    path,
