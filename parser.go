@@ -22,7 +22,11 @@ func ParseFiles(paths []string, withComments bool) ([]*GoFile, error) {
 		fset := token.NewFileSet()
 
 		var mode parser.Mode
-		if withComments { mode = parser.ParseComments } else { mode = 0 }
+		if withComments {
+			mode = parser.ParseComments
+		} else {
+			mode = 0
+		}
 		file, err := parser.ParseFile(fset, p, nil, mode)
 		if err != nil {
 			return nil, err
@@ -47,7 +51,11 @@ func ParseSingleFile(path string, withComments bool) (*GoFile, error) {
 	fset := token.NewFileSet()
 
 	var mode parser.Mode
-	if withComments { mode = parser.ParseComments } else { mode = 0 }
+	if withComments {
+		mode = parser.ParseComments
+	} else {
+		mode = 0
+	}
 	file, err := parser.ParseFile(fset, path, nil, mode)
 	if err != nil {
 		return nil, err
@@ -59,7 +67,11 @@ func ParseSource(source string, filepath string, withComments bool) (*GoFile, er
 	fset := token.NewFileSet()
 	path := filepath
 	var mode parser.Mode
-	if withComments { mode = parser.ParseComments } else { mode = 0 }
+	if withComments {
+		mode = parser.ParseComments
+	} else {
+		mode = 0
+	}
 	file, err := parser.ParseFile(fset, path, source, mode)
 
 	if err != nil {
@@ -68,109 +80,109 @@ func ParseSource(source string, filepath string, withComments bool) (*GoFile, er
 	return parseFile(path, []byte(source), file, fset, []*ast.File{file})
 }
 
-func execCommand(name string, args ...string) (out string, exitCode int, err error){
+func execCommand(name string, args ...string) (out string, exitCode int, err error) {
 	stream := &strings.Builder{}
-	
+
 	cmd := exec.Command(name, args...)
 	cmd.Stderr = stream
 	cmd.Stdout = stream
-	
+	fmt.Printf("%v\n", strings.Join(cmd.Args, " "))
+
 	err = cmd.Run()
-	if err != nil{
+	if err != nil {
 		var terr *exec.ExitError
-		if errors.As(err, &terr){
+		if errors.As(err, &terr) {
 			exitCode = terr.ExitCode()
 			out = stream.String()
 		}
 	}
-	
-	
+
 	fmt.Printf("Execution: %v\n", stream.String())
-	
+
 	return
 }
 
-func getLibrary(importUrl string) (err error, cleanup func()){
-	
+func getLibrary(importUrl string) (err error, cleanup func()) {
+
 	fmt.Printf("Importing %v\n", importUrl)
-	
+
 	cleanup = func() {}
-	
+
 	var out string
 	var exitCode int
-	
+
 	_, staterr := os.Stat("go.mod")
-	if os.IsNotExist(staterr){
+	if os.IsNotExist(staterr) {
 		out, exitCode, err = execCommand("go", "mod", "init", "tempmod")
-		if err != nil{
+		if err != nil {
 			err = fmt.Errorf("failed to execute go mod init command to import Go library: %v.\nError: %v. Exit Code: %v\nOutput: %v\n", importUrl, err, exitCode, out)
 			return
 		}
-		
+
 		cleanup = func() {
 			_ = os.Remove("go.mod")
 			_ = os.Remove("go.sum")
 		}
 	}
-	
+
 	out, exitCode, err = execCommand("go", "get", "-v", importUrl)
-	if err != nil{
+	if err != nil {
 		err = fmt.Errorf("failed to execute go get command to import Go library: %v.\nError: %v. Exit Code: %v\nOutput: %v\n", importUrl, err, exitCode, out)
 		return
 	}
-	
+
 	return
 }
 
 func parseFile(path string, source []byte, file *ast.File, fset *token.FileSet, files []*ast.File) (*GoFile, error) {
 
 	var err error
-	if source == nil{
+	if source == nil {
 		source, err = ioutil.ReadFile(path)
 		if err != nil {
 			return nil, err
 		}
 	}
-	
-	
+
 	// To import sources from vendor, we use "source" compile
 	// https://github.com/golang/go/issues/11415#issuecomment-283445198
-	conf := types.Config{Importer: &PackImporter{fset}/*importer.ForCompiler(fset, "source", nil)*/}
+	conf := types.Config{Importer: &PackImporter{fset} /*importer.ForCompiler(fset, "source", nil)*/}
 	info := &types.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
 		Defs:  make(map[*ast.Ident]types.Object),
 		Uses:  make(map[*ast.Ident]types.Object),
 	}
 
+	conf.IgnoreFuncBodies = true
+
 	tries := 2
-	for tries > 0{
+	for tries > 0 {
 		tries--
 		if _, err = conf.Check(file.Name.Name, fset, files, info); err != nil {
-			
+
 			// Get package to import
 			startingPointString := "could not import "
-			
+
 			start := strings.Index(err.Error(), startingPointString)
-			if start > -1 && tries > 0{
+			if start > -1 && tries > 0 {
 				start += len(startingPointString)
 				end := strings.Index(err.Error()[start:], " ")
-				
-				if end > -1{
-					toimport := err.Error()[start:start+end]
+
+				if end > -1 {
+					toimport := err.Error()[start : start+end]
 					err, cleanup := getLibrary(toimport)
 					defer cleanup()
-					if err != nil{
+					if err != nil {
 						return nil, err
 					}
-					
+
 					continue
 				}
 			}
-		
+
 			return nil, fmt.Errorf("errors type checking source file. error: %v", err)
 		}
 	}
-	
 
 	goFile := &GoFile{
 		Path:    path,
@@ -248,7 +260,7 @@ func parseFile(path string, source []byte, file *ast.File, fset *token.FileSet, 
 
 func buildGoVariable(source []byte, _ *GoFile, info *types.Info, spec *ast.ValueSpec) *GoType {
 	var t *GoType
-	if spec.Type == nil{ // untyped const
+	if spec.Type == nil { // untyped const
 		t = buildType(info, spec.Values[0], source)
 	} else {
 		t = buildType(info, spec.Type, source)
@@ -262,7 +274,7 @@ func buildGoVariable(source []byte, _ *GoFile, info *types.Info, spec *ast.Value
 func buildGoConstant(source []byte, _ *GoFile, info *types.Info, spec *ast.ValueSpec) *GoType {
 
 	var t *GoType
-	if spec.Type == nil{ // untyped const
+	if spec.Type == nil { // untyped const
 		t = buildType(info, spec.Values[0], source)
 	} else {
 		t = buildType(info, spec.Type, source)
@@ -293,9 +305,9 @@ func buildGoImport(spec *ast.ImportSpec, file *GoFile) *GoImport {
 
 func buildGoInterface(source []byte, file *GoFile, info *types.Info, typeSpec *ast.TypeSpec, interfaceType *ast.InterfaceType, cg *ast.CommentGroup) *GoInterface {
 	goInterface := &GoInterface{
-		File:    file,
-		Name:    typeSpec.Name.Name,
-		Methods: buildMethodList(info, interfaceType.Methods.List, source),
+		File:     file,
+		Name:     typeSpec.Name.Name,
+		Methods:  buildMethodList(info, interfaceType.Methods.List, source),
 		Comments: extractComment(cg),
 	}
 
@@ -330,9 +342,9 @@ func buildStructMethod(info *types.Info, funcDecl *ast.FuncDecl, source []byte, 
 	return &GoStructMethod{
 		Receivers: buildReceiverList(info, funcDecl.Recv, source),
 		GoMethod: GoMethod{
-			Name:    funcDecl.Name.Name,
-			Params:  buildTypeList(info, funcDecl.Type.Params, source),
-			Results: buildTypeList(info, funcDecl.Type.Results, source),
+			Name:     funcDecl.Name.Name,
+			Params:   buildTypeList(info, funcDecl.Type.Params, source),
+			Results:  buildTypeList(info, funcDecl.Type.Results, source),
 			Comments: extractComment(cg),
 		},
 	}
@@ -383,11 +395,11 @@ func getNames(field *ast.Field) []string {
 
 func getTypeString(info *types.Info, expr ast.Expr, source []byte) string {
 
-	if expr == nil{
+	if expr == nil {
 		return ""
 	}
 
-	switch expr.(type){
+	switch expr.(type) {
 	case *ast.BasicLit:
 		if typeInfo := info.TypeOf(expr); typeInfo != nil {
 			return typeInfo.String()
@@ -470,9 +482,9 @@ func buildType(info *types.Info, expr ast.Expr, source []byte) *GoType {
 
 func buildGoStruct(source []byte, file *GoFile, info *types.Info, typeSpec *ast.TypeSpec, structType *ast.StructType, cg *ast.CommentGroup) *GoStruct {
 	goStruct := &GoStruct{
-		File:   file,
-		Name:   typeSpec.Name.Name,
-		Fields: []*GoField{},
+		File:     file,
+		Name:     typeSpec.Name.Name,
+		Fields:   []*GoField{},
 		Comments: extractComment(cg),
 	}
 
@@ -503,12 +515,12 @@ func buildGoStruct(source []byte, file *GoFile, info *types.Info, typeSpec *ast.
 }
 
 func extractComment(cg *ast.CommentGroup) string {
-	if cg == nil || cg.List == nil{
+	if cg == nil || cg.List == nil {
 		return ""
 	}
 
 	var comment string
-	for _, c := range cg.List{
+	for _, c := range cg.List {
 		comment += c.Text
 		comment = strings.ReplaceAll(comment, "//", "")
 		comment = strings.ReplaceAll(comment, "/*", "")
