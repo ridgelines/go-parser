@@ -55,6 +55,7 @@ func (g *GoFile) ImportPath() (importPath string, isExternalPackage bool, err er
 	importPath = strings.TrimPrefix(importPath, goPath)
 	importPath = strings.TrimPrefix(importPath, "/src/")
 	importPath = strings.TrimPrefix(importPath, "/pkg/mod/")
+	importPath = strings.TrimPrefix(importPath, "pkg/mod/")
 
 	i := strings.Index(importPath, "@")
 	if i > 0 {
