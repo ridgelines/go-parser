@@ -437,9 +437,89 @@ func getTypeString(info *types.Info, expr ast.Expr) string {
 
 }
 
+func typesBasicToString(basic *types.Basic) string {
+	switch basic.Kind() {
+	case types.Bool:
+		return "bool"
+	case types.Int:
+		return "int"
+	case types.Int8:
+		return "int8"
+	case types.Int16:
+		return "int16"
+	case types.Int32:
+		return "int32"
+	case types.Int64:
+		return "int64"
+	case types.Uint:
+		return "uint"
+	case types.Uint8:
+		return "uint8"
+	case types.Uint16:
+		return "uint16"
+	case types.Uint32:
+		return "uint32"
+	case types.Uint64:
+		return "uint64"
+	case types.Uintptr:
+		return "uint64"
+	case types.Float32:
+		return "float32"
+	case types.Float64:
+		return "float64"
+	case types.Complex64:
+		return "complex64"
+	case types.Complex128:
+		return "complex128"
+	case types.String:
+		return "string"
+	case types.UnsafePointer:
+		return "uint64"
+
+		// types for untyped values
+	case types.UntypedBool:
+		return "bool"
+	case types.UntypedInt:
+		return "int"
+	case types.UntypedRune:
+		return "int32"
+	case types.UntypedFloat:
+		return "float64"
+	case types.UntypedComplex:
+		return "complex128"
+	case types.UntypedString:
+		return "string"
+	case types.UntypedNil:
+		return ""
+
+	default:
+		return ""
+	}
+}
+
 func getUnderlyingTypeString(info *types.Info, expr ast.Expr) string {
 	if typeInfo := info.TypeOf(expr); typeInfo != nil {
 		if underlying := typeInfo.Underlying(); underlying != nil {
+			if _, ok := underlying.(*types.Interface); ok {
+				return typeInfo.String()
+			}
+
+			if _, ok := underlying.(*types.Slice); ok {
+				if e, ok := underlying.(*types.Slice).Elem().(*types.Basic); ok {
+					str := typesBasicToString(e)
+					if str != "" {
+						return "[]" + str
+					}
+				}
+			}
+
+			if e, ok := underlying.(*types.Basic); ok {
+				str := typesBasicToString(e)
+				if str != "" {
+					return str
+				}
+			}
+
 			return underlying.String()
 		}
 	}
