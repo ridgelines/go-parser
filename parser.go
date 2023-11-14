@@ -557,6 +557,8 @@ func buildType(info *types.Info, expr ast.Expr) *GoType {
 	case *ast.StarExpr:
 		innerTypes = append(innerTypes, buildType(info, specType.X))
 	case *ast.Ellipsis:
+		typeString = strings.ReplaceAll(typeString, "[]", "...")
+		underlyingString = strings.ReplaceAll(underlyingString, "[]", "...")
 		innerTypes = append(innerTypes, buildType(info, specType.Elt))
 	case *ast.InterfaceType:
 		methods := buildMethodList(info, specType.Methods.List)
