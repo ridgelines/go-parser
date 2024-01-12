@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"go/build"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,8 +19,8 @@ type GoFile struct {
 	StructMethods   []*GoStructMethod
 }
 
-func isInGoPackages(path string) bool{
-	goPath := strings.Replace(os.Getenv("GOPATH"), "\\", "/", -1)
+func isInGoPackages(path string) bool {
+	goPath := strings.Replace(build.Default.GOPATH, "\\", "/", -1)
 	return strings.Contains(path, goPath)
 }
 
@@ -31,11 +32,11 @@ func (g *GoFile) ImportPath() (importPath string, isExternalPackage bool, err er
 		return "", false, err
 	}
 
-	if _, err = os.Stat(importPath); err != nil{
+	if _, err = os.Stat(importPath); err != nil {
 		return g.Path, false, err
 	}
 
-	if !isInGoPackages(importPath){
+	if !isInGoPackages(importPath) {
 		importPath = strings.TrimSuffix(importPath, filepath.Base(importPath))
 		importPath = strings.TrimSuffix(importPath, "/")
 		return importPath, false, nil
@@ -48,7 +49,7 @@ func (g *GoFile) ImportPath() (importPath string, isExternalPackage bool, err er
 
 	importPath = strings.Replace(importPath, "\\", "/", -1)
 
-	goPath := strings.Replace(os.Getenv("GOPATH"), "\\", "/", -1)
+	goPath := strings.Replace(build.Default.GOPATH, "\\", "/", -1)
 
 	isExternalPackage = true
 
@@ -162,8 +163,10 @@ func (g *GoTag) Get(key string) string {
 
 // For an import - guess what prefix will be used
 // in type declarations.  For examples:
-//    "strings" -> "strings"
-//    "net/http/httptest" -> "httptest"
+//
+//	"strings" -> "strings"
+//	"net/http/httptest" -> "httptest"
+//
 // Libraries where the package name does not match
 // will be mis-identified.
 func (g *GoImport) Prefix() string {
