@@ -5,36 +5,11 @@ import (
 	"go/importer"
 	"go/token"
 	"go/types"
-	"io"
-	"io/ioutil"
-	"os"
+	"golang.org/x/tools/go/packages"
 )
 
 type PackImporter struct {
 	Fset *token.FileSet
-}
-
-func lookup(path string) (io.ReadCloser, error) {
-	fullpath := "C:\\Program Files\\go\\pkg\\windows_amd64\\" + path + ".a"
-	stat, err := os.Stat(fullpath)
-	if os.IsNotExist(err) {
-		fullpath = "c:\\src\\" + path
-		stat, err = os.Stat(fullpath)
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("Did not find " + path)
-		}
-	}
-
-	if stat.IsDir() {
-		files, err := ioutil.ReadDir(fullpath)
-		if err != nil {
-			return nil, err
-		}
-		fullpath = fullpath + string(os.PathSeparator) + files[0].Name()
-
-	}
-
-	return os.Open(fullpath)
 }
 
 func (this *PackImporter) Import(path string) (*types.Package, error) {
@@ -43,10 +18,26 @@ func (this *PackImporter) Import(path string) (*types.Package, error) {
 	pack, err := importer.Default().Import(path)
 
 	if err != nil {
-		pack, err = importer.ForCompiler(this.Fset, "source", nil).Import(path)
-		if err != nil {
-			fmt.Printf("default importer: %v\n", err)
+		cfg := &packages.Config{
+			Fset:  this.Fset,
+			Mode:  packages.NeedTypes,
+			Tests: true,
 		}
+
+		// Load the package by its import path
+		pkgs, err := packages.Load(cfg, path)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check for errors
+		if packages.PrintErrors(pkgs) > 0 {
+			return nil, fmt.Errorf("package %s has errors", path)
+		}
+
+		// Return the first package object
+		return pkgs[0].Types, nil
+
 	}
 
 	return pack, nil
