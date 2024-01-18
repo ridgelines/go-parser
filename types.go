@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"go/build"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,30 +9,100 @@ import (
 )
 
 type GoFile struct {
-	Package       string
-	Path          string
-	Structs       []*GoStruct
-	Interfaces    []*GoInterface
-	Imports       []*GoImport
-	StructMethods []*GoStructMethod
+	Package         string
+	Path            string
+	GlobalConstants []*GoType
+	GlobalVariables []*GoType
+	Structs         []*GoStruct
+	Interfaces      []*GoInterface
+	Imports         []*GoImport
+	StructMethods   []*GoStructMethod
 }
 
-func (g *GoFile) ImportPath() (string, error) {
-	importPath, err := filepath.Abs(g.Path)
+func isInGoPackages(path string) bool {
+	goPath := strings.Replace(build.Default.GOPATH, "\\", "/", -1)
+	return strings.Contains(path, goPath)
+}
+
+func (g *GoFile) ImportPath() (importPath string, isExternalPackage bool, err error) {
+	isExternalPackage = false
+
+	importPath, err = filepath.Abs(g.Path)
 	if err != nil {
-		return "", err
+		return "", false, err
+	}
+
+	if _, err = os.Stat(importPath); err != nil {
+		return g.Path, false, err
+	}
+
+	if !isInGoPackages(importPath) {
+		importPath = strings.TrimSuffix(importPath, filepath.Base(importPath))
+		importPath = strings.TrimSuffix(importPath, "/")
+		return importPath, false, nil
+	}
+
+	importPath, err = filepath.Abs(g.Path)
+	if err != nil {
+		return
 	}
 
 	importPath = strings.Replace(importPath, "\\", "/", -1)
 
-	goPath := strings.Replace(os.Getenv("GOPATH"), "\\", "/", -1)
+	goPath := strings.Replace(build.Default.GOPATH, "\\", "/", -1)
+
+	isExternalPackage = true
+
 	importPath = strings.TrimPrefix(importPath, goPath)
 	importPath = strings.TrimPrefix(importPath, "/src/")
+	importPath = strings.TrimPrefix(importPath, "/pkg/mod/")
+	importPath = strings.TrimPrefix(importPath, "pkg/mod/")
 
-	importPath = strings.TrimSuffix(importPath, filepath.Base(importPath))
+	i := strings.Index(importPath, "@")
+	if i > 0 {
+		importPath = importPath[:i]
+	}
+
+	if strings.HasSuffix(strings.ToLower(importPath), ".go") {
+		i := strings.LastIndex(importPath, "/")
+		if i > 0 {
+			importPath = importPath[:i]
+		}
+	}
+
+	if strings.Contains(importPath, "!") { // replace "!c" to "C"
+		temp := ""
+		nextUppercase := false
+		for i := 0; i < len(importPath); i++ {
+			if importPath[i] == '!' {
+				nextUppercase = true
+			} else {
+				if nextUppercase {
+					temp += strings.ToUpper(string(importPath[i]))
+					nextUppercase = false
+				} else {
+					temp += string(importPath[i])
+				}
+			}
+		}
+		importPath = temp
+	}
+
 	importPath = strings.TrimSuffix(importPath, "/")
 
-	return importPath, nil
+	return
+
+	//
+	//importPath = strings.Replace(importPath, "\\", "/", -1)
+	//
+	//goPath := strings.Replace(os.Getenv("GOPATH"), "\\", "/", -1)
+	//importPath = strings.TrimPrefix(importPath, goPath)
+	//importPath = strings.TrimPrefix(importPath, "/src/")
+	//
+	//importPath = strings.TrimSuffix(importPath, filepath.Base(importPath))
+	//importPath = strings.TrimSuffix(importPath, "/")
+	//
+	//return importPath, false, nil
 }
 
 type GoImport struct {
@@ -41,15 +112,17 @@ type GoImport struct {
 }
 
 type GoInterface struct {
-	File    *GoFile
-	Name    string
-	Methods []*GoMethod
+	File     *GoFile
+	Name     string
+	Comments string
+	Methods  []*GoMethod
 }
 
 type GoMethod struct {
-	Name    string
-	Params  []*GoType
-	Results []*GoType
+	Name     string
+	Params   []*GoType
+	Comments string
+	Results  []*GoType
 }
 
 type GoStructMethod struct {
@@ -65,9 +138,10 @@ type GoType struct {
 }
 
 type GoStruct struct {
-	File   *GoFile
-	Name   string
-	Fields []*GoField
+	File     *GoFile
+	Name     string
+	Comments string
+	Fields   []*GoField
 }
 
 type GoField struct {
@@ -89,8 +163,10 @@ func (g *GoTag) Get(key string) string {
 
 // For an import - guess what prefix will be used
 // in type declarations.  For examples:
-//    "strings" -> "strings"
-//    "net/http/httptest" -> "httptest"
+//
+//	"strings" -> "strings"
+//	"net/http/httptest" -> "httptest"
+//
 // Libraries where the package name does not match
 // will be mis-identified.
 func (g *GoImport) Prefix() string {
